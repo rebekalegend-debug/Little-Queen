@@ -55,8 +55,21 @@ function saveState() {
   }
 }
 
-function getEventType(description = "") {
-  const m = description.match(/Type:\s*([a-z_]+)/i);
+// ✅ Robust: accepts either an event object or a string.
+// Reads description + summary + location to find "Type: xyz"
+function getEventType(evOrText = "") {
+  const text =
+    typeof evOrText === "string"
+      ? evOrText
+      : [
+          evOrText?.description,
+          evOrText?.summary,
+          evOrText?.location,
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+  const m = text.match(/Type:\s*([a-z0-9_]+)/i);
   return m ? m[1].toLowerCase() : null;
 }
 
@@ -100,7 +113,6 @@ function makeKey(prefix, ev, suffix) {
 // =================== Scheduled pings (AOO reminders) ===================
 
 function schedulePing({ channelId, runAtMs, message }) {
-  // stable-ish id
   const id = `${channelId}_${runAtMs}_${Math.random().toString(16).slice(2)}`;
   state.scheduled.push({
     id,
@@ -114,7 +126,6 @@ function schedulePing({ channelId, runAtMs, message }) {
 
 async function processScheduled(client, { silent = false } = {}) {
   const nowMs = Date.now();
-
   let changed = false;
 
   for (const item of state.scheduled) {
@@ -132,13 +143,12 @@ async function processScheduled(client, { silent = false } = {}) {
         }
       }
 
-      // mark as sent no matter what (prevents restart catch-up spam)
       item.sent = true;
       changed = true;
     }
   }
 
-  // optional cleanup: keep file small
+  // cleanup
   const before = state.scheduled.length;
   state.scheduled = state.scheduled.filter((x) => !x.sent);
   if (state.scheduled.length !== before) changed = true;
@@ -159,7 +169,7 @@ async function runCheck(client, { silent = false } = {}) {
   const events = await fetchEvents();
 
   for (const ev of events) {
-    const eventType = getEventType(ev.description || "");
+    const eventType = getEventType(ev); // ✅ changed
     if (!eventType) continue;
 
     const start = new Date(ev.start);
@@ -242,7 +252,7 @@ async function getNextEventOfType(type) {
   const events = await fetchEvents();
 
   const typed = events
-    .filter((ev) => getEventType(ev.description || "") === type)
+    .filter((ev) => getEventType(ev) === type) // ✅ changed
     .map((ev) => ({ ev, start: new Date(ev.start), end: new Date(ev.end) }))
     .filter((x) => x.start > now)
     .sort((a, b) => a.start - b.start);
@@ -256,7 +266,7 @@ async function getNextAnnouncementTime() {
   const candidates = [];
 
   for (const ev of events) {
-    const eventType = getEventType(ev.description || "");
+    const eventType = getEventType(ev); // ✅ changed
     if (!eventType) continue;
 
     const start = new Date(ev.start);
@@ -312,7 +322,7 @@ async function getAnnouncementsInNextMonths(months = 2) {
   const out = [];
 
   for (const ev of events) {
-    const eventType = getEventType(ev.description || "");
+    const eventType = getEventType(ev); // ✅ changed
     if (!eventType) continue;
 
     const start = new Date(ev.start);
@@ -371,31 +381,35 @@ async function getAnnouncementsInNextMonths(months = 2) {
 
 // =================== AOO dropdown flow (date -> hour) ===================
 
-// Find next AOO run event (Type: aoo)
+// ✅ IMPORTANT: your calendar uses Type: ark_battle for Ark of Osiris
+const AOO_TYPES = new Set(["ark_battle", "aoo"]);
+
 async function getNextAooRunEvent() {
   const now = new Date();
   const events = await fetchEvents();
 
   const aoo = events
-    .filter((ev) => getEventType(ev.description || "") === "aoo")
+    .filter((ev) => AOO_TYPES.has(getEventType(ev))) // ✅ changed
     .map((ev) => ({
       uid: ev.uid || "no_uid",
       start: new Date(ev.start),
       end: new Date(ev.end),
     }))
-    .filter((x) => x.end > now) // still relevant (ongoing or upcoming)
+    .filter((x) => x.end > now)
     .sort((a, b) => a.start - b.start);
 
   return aoo[0] || null;
 }
 
-// Get all dates (UTC) covered by [start, end) range
 function listUtcDatesInRange(start, end) {
   const dates = [];
-  const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate(), 0, 0, 0));
-  const endDay = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate(), 0, 0, 0));
+  const d = new Date(
+    Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate(), 0, 0, 0)
+  );
+  const endDay = new Date(
+    Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate(), 0, 0, 0)
+  );
 
-  // iterate by day
   while (d < endDay) {
     dates.push(new Date(d.getTime()));
     d.setUTCDate(d.getUTCDate() + 1);
@@ -419,9 +433,8 @@ function buildDateSelect({ startMs, endMs, dates }) {
 
 function buildHourSelect({ startMs, endMs, dateISO }) {
   const [yyyy, mm, dd] = dateISO.split("-").map((x) => Number(x));
-
-  // Build up to 24 hour options for that UTC date, but only those within event window
   const options = [];
+
   for (let h = 0; h < 24; h++) {
     const t = Date.UTC(yyyy, mm - 1, dd, h, 0, 0, 0);
     if (t >= startMs && t < endMs) {
@@ -432,7 +445,6 @@ function buildHourSelect({ startMs, endMs, dateISO }) {
     }
   }
 
-  // Discord select max = 25 options, 24 is OK
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId(`aoo_hour|${startMs}|${endMs}|${dateISO}`)
@@ -440,8 +452,6 @@ function buildHourSelect({ startMs, endMs, dateISO }) {
       .addOptions(options.length ? options : [{ label: "No valid hours", value: "none" }])
   );
 }
-
-// =================== Help ===================
 
 function helpText() {
   return [
@@ -457,7 +467,6 @@ function helpText() {
 
 // =================== Discord client ===================
 
-// For prefix commands you MUST enable Message Content Intent in Dev Portal.
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -469,11 +478,9 @@ const client = new Client({
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  // Boot sync: mark already-due triggers as sent without posting (prevents restart spam)
   await runCheck(client, { silent: true });
   await processScheduled(client, { silent: true });
 
-  // Normal run
   await runCheck(client, { silent: false });
 
   setInterval(
@@ -481,21 +488,18 @@ client.once("ready", async () => {
     CHECK_EVERY_MINUTES * 60 * 1000
   );
 
-  // Process scheduled reminders every 30 seconds
   setInterval(
     () => processScheduled(client, { silent: false }).catch(console.error),
     30 * 1000
   );
 });
 
-// Handle dropdown interactions (select menus)
 client.on("interactionCreate", async (interaction) => {
   try {
     if (!interaction.isStringSelectMenu()) return;
 
     const id = interaction.customId || "";
 
-    // Step 1: Date selection
     if (id.startsWith("aoo_date|")) {
       const [, startMsStr, endMsStr] = id.split("|");
       const startMs = Number(startMsStr);
@@ -516,7 +520,6 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // Step 2: Hour selection -> schedule pings
     if (id.startsWith("aoo_hour|")) {
       const parts = id.split("|");
       const startMs = Number(parts[1]);
@@ -545,16 +548,16 @@ client.on("interactionCreate", async (interaction) => {
       const thirtyMs = aooStartMs - 30 * 60 * 1000;
       const tenMs = aooStartMs - 10 * 60 * 1000;
 
-      // Schedule only if still in the future
       const channelId = interaction.channelId;
-
       let scheduledCount = 0;
 
       if (thirtyMs > nowMs) {
         schedulePing({
           channelId,
           runAtMs: thirtyMs,
-          message: `${PING}\nAOO starts in **30 minutes** — get ready! (Start: ${formatUTC(new Date(aooStartMs))})`,
+          message: `${PING}\nAOO starts in **30 minutes** — get ready! (Start: ${formatUTC(
+            new Date(aooStartMs)
+          )})`,
         });
         scheduledCount++;
       }
@@ -563,7 +566,9 @@ client.on("interactionCreate", async (interaction) => {
         schedulePing({
           channelId,
           runAtMs: tenMs,
-          message: `${PING}\nAOO starts in **10 minutes** — be ready! (Start: ${formatUTC(new Date(aooStartMs))})`,
+          message: `${PING}\nAOO starts in **10 minutes** — be ready! (Start: ${formatUTC(
+            new Date(aooStartMs)
+          )})`,
         });
         scheduledCount++;
       }
@@ -576,7 +581,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await interaction.update({
         content: `✅ AOO start selected: **${startText}**\n${note}`,
-        components: [], // remove dropdowns
+        components: [],
       });
 
       return;
@@ -646,9 +651,7 @@ client.on("messageCreate", async (msg) => {
       }
 
       const header = `Upcoming announcements (UTC) until ${formatUTC(until)}:\n`;
-      const lines = items.map(
-        (x, i) => `${i + 1}) ${formatUTC(x.when)} — ${x.text}`
-      );
+      const lines = items.map((x, i) => `${i + 1}) ${formatUTC(x.when)} — ${x.text}`);
 
       let chunk = header;
       for (const line of lines) {
@@ -664,12 +667,11 @@ client.on("messageCreate", async (msg) => {
       return;
     }
 
-    // NEW: !aoo -> dropdown date -> hour -> schedules reminders
     if (cmd === "aoo") {
       const aoo = await getNextAooRunEvent();
       if (!aoo) {
         await msg.reply(
-          "No upcoming/ongoing AOO run event found. Make sure your calendar event description contains `Type: aoo`."
+          "No upcoming/ongoing AOO run event found. Make sure the calendar event has `Type: ark_battle` (or `Type: aoo`)."
         );
         return;
       }
