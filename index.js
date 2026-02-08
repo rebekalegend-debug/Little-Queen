@@ -74,15 +74,15 @@ async function runCheck(client) {
     const start = new Date(ev.start);
     const end = new Date(ev.end);
 
-    // 1) AoO Registration: Type = ark_registration
+    // 1) AOO Registration: Type = ark_registration
     if (eventType === "ark_registration") {
-      const openKey = makeKey("aoo", ev, "open");
-      const warnKey = makeKey("aoo", ev, "24h_before_end");
+      const openKey = makeKey("AOO", ev, "open");
+      const warnKey = makeKey("AOO", ev, "24h_before_end");
 
       // at start
       if (!state[openKey] && now >= start) {
         await channel.send(
-          `${PING}\nAoO registration is open! Reach out to AoO team to apply.`
+          `${PING}\nAOO registration is open! Reach out to AOO team to apply.`
         );
         state[openKey] = true;
         saveState();
@@ -92,7 +92,7 @@ async function runCheck(client) {
       const hoursToEnd = hoursBetween(now, end);
       if (!state[warnKey] && hoursToEnd <= 24 && hoursToEnd > 0) {
         await channel.send(
-          `${PING}\nAoO registration ends in 1 day — don’t forget to register!`
+          `${PING}\nAOO registration ends in 1 day — don’t forget to register!`
         );
         state[warnKey] = true;
         saveState();
@@ -107,8 +107,9 @@ async function runCheck(client) {
       // at end => registration open
       if (!state[openKey] && now >= end) {
         await channel.send(
-          `${PING}\nMGE registration is open! Reach out to Harley Quinn.`
-        );
+  `${PING}\nMGE registration is open! Reach out to <#1469846200042917918> channel for registration!`
+);
+
         state[openKey] = true;
         saveState();
       }
@@ -147,4 +148,5 @@ client.once("ready", async () => {
 });
 
 client.login(DISCORD_TOKEN);
+
 
