@@ -19,6 +19,13 @@ const CHECK_EVERY_MINUTES = Number(process.env.CHECK_EVERY_MINUTES ?? "10");
 // Prefix commands
 const PREFIX = process.env.PREFIX ?? "!";
 
+// ✅ Role restriction (you gave the ID)
+const AOO_ROLE_ID = process.env.AOO_ROLE_ID ?? "1470120925856006277";
+
+// ✅ MGE channel mention (use env var if you set it; fallback to your ID)
+const MGE_CHANNEL_ID = process.env.MGE_CHANNEL_ID ?? "1469846200042917918";
+const MGE_CHANNEL_MENTION = `<#${MGE_CHANNEL_ID}>`;
+
 // Persistent state (mount Railway Volume at /data)
 const STATE_DIR = process.env.STATE_DIR ?? "/data";
 const stateFile = path.resolve(STATE_DIR, "state.json");
@@ -53,6 +60,11 @@ function saveState() {
   } catch (e) {
     console.error("Failed to save state:", e);
   }
+}
+
+// ✅ role guard
+function hasAooRole(member) {
+  return member?.roles?.cache?.has(AOO_ROLE_ID);
 }
 
 // ✅ Robust: accepts either an event object or a string.
@@ -151,7 +163,7 @@ async function processScheduled(client, { silent = false } = {}) {
   if (changed) saveState();
 }
 
-// ✅ NEW: scheduled list helpers
+// ✅ scheduled list helpers
 function formatDuration(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
   const days = Math.floor(s / 86400);
@@ -208,7 +220,6 @@ async function runCheck(client, { silent = false } = {}) {
 
       const warnTime = addHours(end, -6);
 
-      // at start
       if (!state[openKey] && now >= start) {
         if (!silent) {
           await channel.send(
@@ -219,7 +230,6 @@ async function runCheck(client, { silent = false } = {}) {
         saveState();
       }
 
-      // 6h before end
       if (!state[warnKey] && now >= warnTime && now < end) {
         if (!silent) {
           await channel.send(
@@ -230,7 +240,6 @@ async function runCheck(client, { silent = false } = {}) {
         saveState();
       }
 
-      // at end
       if (!state[closeKey] && now >= end) {
         if (!silent) {
           await channel.send(`${PING}\nAOO registration closed`);
@@ -248,22 +257,20 @@ async function runCheck(client, { silent = false } = {}) {
       const warnKey = makeKey("MGE", ev, "48h_before_start_warn_close_24h");
       const closeKey = makeKey("MGE", ev, "closed_24h_before_start");
 
-      const openTime = addHours(end, 24); // open 24h after end
-      const warnTime = addHours(start, -48); // warn at 48h before start
-      const closeTime = addHours(start, -24); // close at 24h before start
+      const openTime = addHours(end, 24);
+      const warnTime = addHours(start, -48);
+      const closeTime = addHours(start, -24);
 
-      // open at end + 24h
       if (!state[openKey] && now >= openTime) {
         if (!silent) {
           await channel.send(
-            `${PING}\nMGE registraton is open, register in <#1469846200042917918> channel, or reach out to mge team!`
+            `${PING}\nMGE registraton is open, register in ${MGE_CHANNEL_MENTION} channel, or reach out to mge team!`
           );
         }
         state[openKey] = true;
         saveState();
       }
 
-      // warn at 48h before start
       if (!state[warnKey] && now >= warnTime && now < closeTime) {
         if (!silent) {
           await channel.send(
@@ -274,7 +281,6 @@ async function runCheck(client, { silent = false } = {}) {
         saveState();
       }
 
-      // closed at 24h before start
       if (!state[closeKey] && now >= closeTime && now < start) {
         if (!silent) {
           await channel.send(`${PING}\nMGE registration is closed`);
@@ -286,7 +292,7 @@ async function runCheck(client, { silent = false } = {}) {
   }
 }
 
-// ---------- Prefix command helpers (MODIFIED to match new rules) ----------
+// ---------- Prefix command helpers ----------
 
 async function getNextEventOfType(type) {
   const now = new Date();
@@ -313,7 +319,6 @@ async function getNextAnnouncementTime() {
     const start = new Date(ev.start);
     const end = new Date(ev.end);
 
-    // AOO Registration rules
     if (eventType === "ark_registration") {
       const openKey = makeKey("AOO_REG", ev, "open_at_start");
       const warnKey = makeKey("AOO_REG", ev, "6h_before_end");
@@ -346,7 +351,6 @@ async function getNextAnnouncementTime() {
       }
     }
 
-    // MGE rules
     if (eventType === "mge") {
       const openKey = makeKey("MGE", ev, "open_24h_after_end");
       const warnKey = makeKey("MGE", ev, "48h_before_start_warn_close_24h");
@@ -359,7 +363,7 @@ async function getNextAnnouncementTime() {
       if (!state[openKey] && openTime > now) {
         candidates.push({
           when: openTime,
-          text: "MGE registraton is open, register in 1469846200042917918 channel, or reach out to mge team!",
+          text: `MGE registraton is open, register in ${MGE_CHANNEL_MENTION} channel, or reach out to mge team!`,
           key: openKey,
         });
       }
@@ -443,7 +447,7 @@ async function getAnnouncementsInNextMonths(months = 2) {
       if (!state[openKey] && openTime >= now && openTime <= until) {
         out.push({
           when: openTime,
-          text: "MGE registraton is open, register in 1469846200042917918 channel, or reach out to mge team!",
+          text: `MGE registraton is open, register in ${MGE_CHANNEL_MENTION} channel, or reach out to mge team!`,
           key: openKey,
         });
       }
@@ -504,7 +508,14 @@ async function getNextAooRunEvent() {
 function listUtcDatesInRange(start, end) {
   const dates = [];
   const d = new Date(
-    Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate(), 0, 0, 0)
+    Date.UTC(
+      start.getUTCFullYear(),
+      start.getUTCMonth(),
+      start.getUTCDate(),
+      0,
+      0,
+      0
+    )
   );
   const endDay = new Date(
     Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate(), 0, 0, 0)
@@ -549,7 +560,9 @@ function buildHourSelect({ startMs, endMs, dateISO }) {
     new StringSelectMenuBuilder()
       .setCustomId(`aoo_hour|${startMs}|${endMs}|${dateISO}`)
       .setPlaceholder("Select AOO start hour (UTC)")
-      .addOptions(options.length ? options : [{ label: "No valid hours", value: "none" }])
+      .addOptions(
+        options.length ? options : [{ label: "No valid hours", value: "none" }]
+      )
   );
 }
 
@@ -600,9 +613,18 @@ client.on("interactionCreate", async (interaction) => {
   try {
     if (!interaction.isStringSelectMenu()) return;
 
+    // 🔒 Role check for dropdowns
+    const member = interaction.member;
+    if (!hasAooRole(member)) {
+      await interaction.reply({
+        content: "❌ You need the **AOO role** to use this menu.",
+        ephemeral: true,
+      });
+      return;
+    }
+
     const id = interaction.customId || "";
 
-    // Step 1: Date selection
     if (id.startsWith("aoo_date|")) {
       const [, startMsStr, endMsStr] = id.split("|");
       const startMs = Number(startMsStr);
@@ -623,7 +645,6 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // Step 2: Hour selection -> schedule pings
     if (id.startsWith("aoo_hour|")) {
       const parts = id.split("|");
       const startMs = Number(parts[1]);
@@ -706,6 +727,15 @@ client.on("messageCreate", async (msg) => {
     if (!msg.guild) return;
     if (!msg.content?.startsWith(PREFIX)) return;
 
+    // 🔒 Role check for all prefix commands
+    if (!hasAooRole(msg.member)) {
+      await msg.reply({
+        content: "❌ You need the **AOO role** to use this command.",
+        allowedMentions: { repliedUser: false },
+      });
+      return;
+    }
+
     const content = msg.content.slice(PREFIX.length).trim();
     const [cmdRaw] = content.split(/\s+/);
     const cmd = (cmdRaw || "").toLowerCase();
@@ -758,7 +788,6 @@ client.on("messageCreate", async (msg) => {
       return;
     }
 
-    // ✅ NEW: list scheduled reminders (from !aoo selections)
     if (cmd === "scheduled_list") {
       const nowMs = Date.now();
       const items = (state.scheduled || [])
@@ -782,9 +811,7 @@ client.on("messageCreate", async (msg) => {
         const preview = String(it.message || "").replace(/\n/g, " ").slice(0, 120);
 
         lines.push(
-          `${i + 1}) ${formatUTC(when)} (in ${inTxt}) — ${preview}${
-            preview.length === 120 ? "…" : ""
-          }`
+          `${i + 1}) ${formatUTC(when)} (in ${inTxt}) — ${preview}${preview.length === 120 ? "…" : ""}`
         );
       }
 
@@ -800,7 +827,6 @@ client.on("messageCreate", async (msg) => {
       return;
     }
 
-    // Keep your !aoo command
     if (cmd === "aoo") {
       const aoo = await getNextAooRunEvent();
       if (!aoo) {
@@ -841,3 +867,4 @@ client.on("messageCreate", async (msg) => {
 });
 
 client.login(DISCORD_TOKEN);
+
